@@ -23,22 +23,30 @@ interface Rect {
 
 import { calculateAspectFit } from "./layout";
 
-export const getGripPosition = (item: CanvasItem, gripIndex: number): Point | null => {
+export const getGripPosition = (
+  item: CanvasItem,
+  gripIndex: number,
+): Point | null => {
   if (!item.grips || gripIndex >= item.grips.length) return null;
 
   // Calculate the actual rendered box of the image
-  const { x: renderX, y: renderY, width: renderWidth, height: renderHeight } = calculateAspectFit(
+  const {
+    x: renderX,
+    y: renderY,
+    width: renderWidth,
+    height: renderHeight,
+  } = calculateAspectFit(
     item.width,
     item.height,
     item.naturalWidth,
-    item.naturalHeight
+    item.naturalHeight,
   );
 
   const grip = item.grips[gripIndex];
 
   // Grip position is relative to the RENDERED image, plus the item's absolute position
-  const x = (item.x + renderX) + (grip.x / 100) * renderWidth;
-  const y = (item.y + renderY) + ((100 - grip.y) / 100) * renderHeight;
+  const x = item.x + renderX + (grip.x / 100) * renderWidth;
+  const y = item.y + renderY + ((100 - grip.y) / 100) * renderHeight;
 
   return { x, y };
 };
@@ -49,7 +57,7 @@ const getItemRects = (items: CanvasItem[]): Rect[] => {
       item.width,
       item.height,
       item.naturalWidth,
-      item.naturalHeight
+      item.naturalHeight,
     );
 
     return {
@@ -78,7 +86,7 @@ const segmentHitsRect = (p1: Point, p2: Point, r: Rect) => {
 export const smartRoute = (
   start: Point,
   end: Point,
-  items: CanvasItem[]
+  items: CanvasItem[],
 ): Point[] => {
   const obstacles = getItemRects(items);
 
@@ -203,7 +211,7 @@ export const getClosestSide = (g: any): "top" | "bottom" | "left" | "right" => {
   const distLeft = g.x;
   const distRight = 100 - g.x;
   const distTop = 100 - g.y; // y=100 is top (0 distance)
-  const distBottom = g.y;    // y=0 is bottom (0 distance)
+  const distBottom = g.y; // y=0 is bottom (0 distance)
 
   const min = Math.min(distLeft, distRight, distTop, distBottom);
 
@@ -253,8 +261,14 @@ export const calculateManualPathsWithBridges = (
     const points: Point[] = [start, startStandoff];
 
     let bends: Point[];
+
     if (conn.waypoints && conn.waypoints.length > 0) {
-      bends = conn.waypoints;
+      const waypoint = conn.waypoints[0];
+
+      const first = smartRoute(startStandoff, waypoint, items);
+      const second = smartRoute(waypoint, endStandoff, items);
+
+      bends = [...first, waypoint, ...second];
     } else {
       bends = smartRoute(startStandoff, endStandoff, items);
     }
@@ -385,7 +399,7 @@ export const calculateManualPathsWithBridges = (
       pathData,
       endPoint,
       arrowAngle,
-      waypoints: connectionWaypoints[line.id]
+      waypoints: connectionWaypoints[line.id],
     };
   }
 
