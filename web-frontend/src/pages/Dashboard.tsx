@@ -353,9 +353,8 @@ export default function Dashboard() {
           {filteredProjects.map((proj) => (
             <Card
               key={proj.id}
-              // isPressable
               className="p-2 hover:scale-[1.01] transition-transform cursor-pointer"
-              onPress={() => navigate(`/editor/${proj.id}`)}>
+              onClick={() => navigate(`/editor/${proj.id}`)}>
               <CardHeader className="flex gap-3">
                 <div className="bg-primary/10 p-2 rounded-lg text-2xl">📄</div>
                 <div className="flex flex-col flex-grow">
