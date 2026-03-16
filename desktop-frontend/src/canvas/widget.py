@@ -83,15 +83,12 @@ class CanvasWidget(QWidget):
             comp.validation_error_msg = ""
             
             error_msgs = []
-            if comp in self.validation_errors["isolated"]:
-                comp.is_valid = False
-                error_msgs.append("Isolated component (no connections).")
             if comp in self.validation_errors["loops"]:
                 comp.is_valid = False
                 error_msgs.append("Circular loop detected.")
             if comp in self.validation_errors["flow_errors"]:
                 comp.is_valid = False
-                error_msgs.append("Process flow is broken (unreachable inlet/outlet).")
+                error_msgs.append("Component has no inlet or outlet connections.")
                 
             if error_msgs:
                 comp.validation_error_msg = "\n".join(error_msgs)

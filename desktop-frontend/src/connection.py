@@ -30,7 +30,9 @@ class Connection:
         self.end_adjust = 0.0 # Moves the end stub (pe)
         
         # Auto-Router Integration
-        self.use_auto_router = False  # Enable/disable smart auto-routing
+        # NOTE: Auto-router temporarily disabled due to BFS pathfinding complexity
+        # Using enhanced rule-based routing with orthogonality enforcement instead
+        self.use_auto_router = False  # Disabled - using rule-based with orthogonal enforcement
         self.auto_router = AutoRouter(grid_resolution=10)  # Grid size: 10px
 
     def set_end_grip(self, component, grip_index, side):
@@ -108,6 +110,10 @@ class Connection:
         2. Otherwise:
            - Use rule-based heuristic routing (original logic)
         """
+        # CRITICAL: Clear existing path completely to prevent stretching/partial updates
+        self.path = []
+        self.painter_path = QPainterPath()
+        
         # Determine routing mode
         should_use_auto_router = use_auto_router if use_auto_router is not None else self.use_auto_router
         
@@ -156,7 +162,10 @@ class Connection:
         path_points = self.auto_router.find_path(start_point, end_point, scene_bounds)
         
         # Convert to our path format and add start/end stubs
-        self.path = self._add_stubs_to_grid_path(path_points)
+        raw_path = self._add_stubs_to_grid_path(path_points)
+        
+        # CRITICAL: Ensure perfect orthogonality even for auto-routed paths
+        self.path = self._ensure_orthogonal_path(raw_path)
     
     def _calculate_path_rule_based(self):
         """
@@ -165,8 +174,9 @@ class Connection:
         
         This is the fallback/default routing strategy when auto-router is disabled.
         Ports the logic from the reference project.
+        
+        IMPORTANT: All intermediate points are strictly aligned to ensure perfect orthogonality.
         """
-        self.path = [] # Reset
         start_point = QPointF(self.get_start_pos())
         points = [start_point]
         end_point = QPointF(self.get_end_pos())
@@ -359,9 +369,79 @@ class Connection:
                  points.append(pe)
 
         points.append(end_point)
-        self.path = points
+        points = self._avoid_components(points, obstacles)
+        self.path = self._simplify_path(points)
 
 
+    def _ensure_orthogonal_path(self, points: list) -> list:
+        """
+        Ensure all path segments are perfectly horizontal or vertical.
+        
+        This method converts any diagonal segments into proper orthogonal segments
+        by adding intermediate corner points where needed.
+        
+        Args:
+            points: List of QPointF representing the path
+        
+        Returns:
+            List of QPointF with guaranteed orthogonal segments
+        """
+        if len(points) < 2:
+            return points
+        
+        orthogonal_points = [points[0]]
+        
+        for i in range(1, len(points)):
+            prev = orthogonal_points[-1]
+            curr = points[i]
+            
+            dx = abs(curr.x() - prev.x())
+            dy = abs(curr.y() - prev.y())
+            
+            # Check if segment is already orthogonal (purely horizontal or vertical)
+            if dx < 0.1:  # Vertical segment
+                orthogonal_points.append(QPointF(prev.x(), curr.y()))
+            elif dy < 0.1:  # Horizontal segment
+                orthogonal_points.append(QPointF(curr.x(), prev.y()))
+            else:
+                # Diagonal segment - need to add corner point
+                # Decide routing based on which direction is dominant
+                # and what makes sense for the connection flow
+                
+                # Look ahead if possible to determine best routing
+                if i < len(points) - 1:
+                    next_pt = points[i + 1]
+                    dx_next = abs(next_pt.x() - curr.x())
+                    dy_next = abs(next_pt.y() - curr.y())
+                    
+                    # Choose direction that aligns better with next segment
+                    if dx_next < dy_next:
+                        # Next segment is more vertical, go horizontal first
+                        orthogonal_points.append(QPointF(curr.x(), prev.y()))
+                        orthogonal_points.append(QPointF(curr.x(), curr.y()))
+                    else:
+                        # Next segment is more horizontal, go vertical first
+                        orthogonal_points.append(QPointF(prev.x(), curr.y()))
+                        orthogonal_points.append(QPointF(curr.x(), curr.y()))
+                else:
+                    # Last segment - choose based on which direction is larger
+                    if dx > dy:
+                        # Go horizontal first, then vertical
+                        orthogonal_points.append(QPointF(curr.x(), prev.y()))
+                        orthogonal_points.append(QPointF(curr.x(), curr.y()))
+                    else:
+                        # Go vertical first, then horizontal
+                        orthogonal_points.append(QPointF(prev.x(), curr.y()))
+                        orthogonal_points.append(QPointF(curr.x(), curr.y()))
+        
+        # Remove duplicate consecutive points
+        filtered_points = [orthogonal_points[0]]
+        for i in range(1, len(orthogonal_points)):
+            if (abs(orthogonal_points[i].x() - filtered_points[-1].x()) > 0.1 or 
+                abs(orthogonal_points[i].y() - filtered_points[-1].y()) > 0.1):
+                filtered_points.append(orthogonal_points[i])
+        
+        return filtered_points
 
     def _guess_approach_side(self, start, end):
         # Heuristic to guess optimal entry side when dragging freely
@@ -385,7 +465,7 @@ class Connection:
             grid_path: Path points from BFS pathfinding
         
         Returns:
-            Enhanced path with stubs
+            Enhanced path with stubs (may need orthogonality enforcement after)
         """
         if len(grid_path) < 2:
             return grid_path
@@ -431,22 +511,46 @@ class Connection:
         else:
             pe = QPointF(end_point.x() - off_end, end_point.y())
         
-        # Construct final path: start -> ns -> [grid_path middle] -> pe -> end
-        final_path = [start_point]
+        # Construct final path with proper orthogonal connections
+        final_path = [start_point, ns]
         
-        # Add start stub only if it's different from grid path start
-        if ns != grid_path[0]:
-            final_path.append(ns)
+        # Add intermediate point to connect ns to grid_path orthogonally
+        if len(grid_path) > 0:
+            first_grid = grid_path[0]
+            
+            # Create orthogonal connection from ns to first grid point
+            # Check which direction the stub goes
+            if abs(ns.x() - start_point.x()) < 0.1:
+                # Vertical stub, create horizontal connection to grid
+                bridge = QPointF(first_grid.x(), ns.y())
+                if abs(bridge.x() - ns.x()) > 1.0:  # Only add if needed
+                    final_path.append(bridge)
+            else:
+                # Horizontal stub, create vertical connection to grid
+                bridge = QPointF(ns.x(), first_grid.y())
+                if abs(bridge.y() - ns.y()) > 1.0:  # Only add if needed
+                    final_path.append(bridge)
         
-        # Add middle grid path (skip first point if close to ns, skip last if close to pe)
-        for i in range(1, len(grid_path) - 1):
-            final_path.append(grid_path[i])
+        # Add all grid path points
+        final_path.extend(grid_path)
         
-        # Add end stub only if different from grid path end
-        if len(grid_path) > 1 and pe != grid_path[-1]:
-            final_path.append(pe)
+        # Add intermediate point to connect grid_path to pe orthogonally
+        if len(grid_path) > 0:
+            last_grid = grid_path[-1]
+            
+            # Create orthogonal connection from last grid point to pe
+            if abs(pe.x() - end_point.x()) < 0.1:
+                # Vertical end stub, create horizontal connection from grid
+                bridge = QPointF(pe.x(), last_grid.y())
+                if abs(bridge.x() - last_grid.x()) > 1.0:  # Only add if needed
+                    final_path.append(bridge)
+            else:
+                # Horizontal end stub, create vertical connection from grid
+                bridge = QPointF(last_grid.x(), pe.y())
+                if abs(bridge.y() - last_grid.y()) > 1.0:  # Only add if needed
+                    final_path.append(bridge)
         
-        final_path.append(end_point)
+        final_path.extend([pe, end_point])
         
         return final_path
     
@@ -492,6 +596,120 @@ class Connection:
     def enable_auto_router(self, enable: bool = True):
         """Enable or disable smart auto-routing for this connection."""
         self.use_auto_router = enable
+
+    def _avoid_components(self, points, obstacles):
+        if not obstacles or len(points) < 2:
+            return points
+
+        blocked_components = []
+        for comp in obstacles:
+            if comp in (self.start_component, self.end_component, self.snap_component):
+                continue
+            if hasattr(comp, "logical_rect"):
+                blocked_components.append(comp)
+
+        if not blocked_components:
+            return points
+
+        routed = list(points)
+        for _ in range(2):
+            changed = False
+            result = [routed[0]]
+            for i in range(len(routed) - 1):
+                p1 = result[-1]
+                p2 = routed[i + 1]
+
+                detoured = False
+                for comp in blocked_components:
+                    rect = comp.logical_rect.adjusted(-10, -10, 10, 10)
+                    detour_path = self._detour_segment_around_rect(p1, p2, rect)
+                    if detour_path:
+                        for pt in detour_path[1:]:
+                            result.append(pt)
+                        detoured = True
+                        changed = True
+                        break
+
+                if not detoured:
+                    result.append(p2)
+
+            routed = result
+            if not changed:
+                break
+
+        return routed
+
+    def _detour_segment_around_rect(self, p1, p2, rect):
+        is_horizontal = abs(p1.y() - p2.y()) < 0.5
+        is_vertical = abs(p1.x() - p2.x()) < 0.5
+
+        if is_horizontal:
+            y = p1.y()
+            min_x = min(p1.x(), p2.x())
+            max_x = max(p1.x(), p2.x())
+            intersects = (rect.top() <= y <= rect.bottom()) and (max_x > rect.left()) and (min_x < rect.right())
+            if not intersects:
+                return None
+
+            top_y = rect.top()
+            bottom_y = rect.bottom()
+            bypass_y = top_y if abs(y - top_y) <= abs(y - bottom_y) else bottom_y
+            return [
+                p1,
+                QPointF(p1.x(), bypass_y),
+                QPointF(p2.x(), bypass_y),
+                p2,
+            ]
+
+        if is_vertical:
+            x = p1.x()
+            min_y = min(p1.y(), p2.y())
+            max_y = max(p1.y(), p2.y())
+            intersects = (rect.left() <= x <= rect.right()) and (max_y > rect.top()) and (min_y < rect.bottom())
+            if not intersects:
+                return None
+
+            left_x = rect.left()
+            right_x = rect.right()
+            bypass_x = left_x if abs(x - left_x) <= abs(x - right_x) else right_x
+            return [
+                p1,
+                QPointF(bypass_x, p1.y()),
+                QPointF(bypass_x, p2.y()),
+                p2,
+            ]
+
+        return None
+
+    def _simplify_path(self, points):
+        if len(points) < 3:
+            return points
+
+        deduped = [points[0]]
+        for pt in points[1:]:
+            prev = deduped[-1]
+            if abs(prev.x() - pt.x()) < 0.01 and abs(prev.y() - pt.y()) < 0.01:
+                continue
+            deduped.append(pt)
+
+        if len(deduped) < 3:
+            return deduped
+
+        simplified = [deduped[0]]
+        for i in range(1, len(deduped) - 1):
+            a = simplified[-1]
+            b = deduped[i]
+            c = deduped[i + 1]
+
+            collinear_vertical = abs(a.x() - b.x()) < 0.01 and abs(b.x() - c.x()) < 0.01
+            collinear_horizontal = abs(a.y() - b.y()) < 0.01 and abs(b.y() - c.y()) < 0.01
+            if collinear_vertical or collinear_horizontal:
+                continue
+
+            simplified.append(b)
+
+        simplified.append(deduped[-1])
+        return simplified
 
     def update_path(self, components, other_connections):
         """
@@ -591,56 +809,14 @@ class Connection:
                     dest = p1 + u * segment_end_dist
                     self.painter_path.lineTo(dest)
                 
-                # Draw Jump (Arc)
-                # We want a semi-circle. 
-                # QPainterPath.arcTo(rect, startAngle, sweepLength)
-                # Rect is bounding box of the circle.
-                # Center of jump is p1 + u * dist
                 jump_center = p1 + u * dist
-                
-                # Determine rect
-                # This arc should bulge "up" relative to the line direction?
-                # Standard PFD jump convention: usually bumps 'up' (screen Y negative) for horizontal
-                # For vertical, bumps left or right?
-                # Let's say we bump "Positive Normal"
-                # Normal (-y, x)
+
                 
                 rect_top_left = jump_center - QPointF(r, r)
                 rect = QRectF(rect_top_left, QSizeF(2*r, 2*r))
                 
                 # Calculate angle of the line
                 angle = math.degrees(math.atan2(u.y(), u.x()))
-                # arcTo takes start angle (3 o'clock is 0)
-                # We want to start at angle - 180 (backwards) ? No.
-                # If moving Right (0 deg), we start at 180 (left side of circle) and sweep -180 (up/ccw?)
-                
-                # Actually, simpler: 
-                # p_start = center - u*r
-                # p_end = center + u*r
-                
-                # If we use arcTo, we need the rect.
-                # if Line is Horizontal Right (0 deg)
-                # we draw line to left-of-center.
-                # We want arc to go UP. 
-                # StartAngle 180, Sweep -180 (Clockwise check?)
-                # Qt: Positive sweep is Counter-Clockwise.
-                # if we want Bump UP, we need start 180, sweep 180? (Goes down?)
-                # 0 is East. 90 is North (Screen Y is down, so 90 is Down visually in normal math, but Qt Y is down)
-                # Wait, Qt Y is down.
-                # 0 = Right (X+)
-                # 90 = Down (Y+)
-                # 270 = Up (Y-)
-                
-                # If Horizontal Right: Start 180 (Left), sweep +180 -> goes through 270 (Up). Correct.
-                # If Horizontal Left: Angle 180.
-                # We approach from Right side of circle (0 deg).
-                # Start 0. Sweep -180 -> goes through -90 (Up, which is 270). Correct. (Or +180 goes through 90 Down)
-                
-                # General Formula:
-                # we enter at -u (relative to center).
-                # angle of -u is angle + 180.
-                # we want to bulge 'Left' relative to direction? Or just always Up/Left?
-                # Let's simple fix: always counter-clockwise (+180)
                 
                 self.painter_path.arcTo(rect, -angle + 180, -180) 
                 # Note: Qt angles are counter-clockwise, but Y is flipped.
@@ -692,18 +868,9 @@ class Connection:
                 # Normalize
                 u = vec / l
                 
-                # OFFSET THE ARROW TIP
-                # Visual padding of component plate is ~6px.
-                # 10px visual gap ensures we clear the component plate in Dark Mode.
-                # In Light Mode, we only need to clear the grip radius (~4px), or users might prefer it tighter.
-                
-                visual_retract = 10.0 if theme == "dark" else 4.0
-                retract_px = visual_retract / max(0.1, zoom)
-                
-                if l < retract_px: 
-                    retract_px = 0
-                
-                p_tip = p_end - u * retract_px
+                # Arrow tip connects directly to the grip point (no retraction)
+                # This ensures the connection line touches the grip exactly
+                p_tip = p_end
                 
                 # Arrow Geometry
                 # Maintain constant VISUAL size for the arrow
@@ -719,14 +886,6 @@ class Connection:
                 p2 = p_base - perp * (arrow_size / 2.5)
                 
                 arrow_poly = QPolygonF([p_tip, p1, p2])
-                
-                # Draw Eraser Line to hide the "nose"
-                eraser_color = QColor("#0f172a") if theme == "dark" else Qt.white
-                
-                # Eraser must be slightly thicker than the line to fully cover it
-                eraser_width = (visual_width + 1.0) / max(0.1, zoom)
-                painter.setPen(QPen(eraser_color, eraser_width))
-                painter.drawLine(p_tip, p_end)
                 
                 # Draw Arrow with High Contrast Black Border
                 # Solid Black border ensures visibility on top of EVERYTHING.

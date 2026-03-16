@@ -96,49 +96,16 @@ class GraphValidator:
         missing_inlet = len(inlets) == 0 and len(self.components) > 0
         missing_outlet = len(outlets) == 0 and len(self.components) > 0
 
-        # Run BFS from all inlets to find all reachable nodes
-        reachable_from_inlets = set()
-        queue = deque(inlets)
-        
-        while queue:
-            curr = queue.popleft()
-            if curr not in reachable_from_inlets:
-                reachable_from_inlets.add(curr)
-                for neighbor in self.adj_list[curr]:
-                    queue.append(neighbor)
-
         flow_errors = set()
         
-        # 1. Any node that is NOT an isolated node and NOT a loop node,
-        # but is unreachable from an inlet, is a flow error.
+        # A component MUST have either an inlet or an outlet.
+        # If it has 0 incoming AND 0 outgoing connections, it's an error.
+        # This replaces the strict path-to-Inlet/Outlet BFS logic.
         for comp in self.components:
+            name = comp.config.get("object", "").lower()
+            
+            # If a standard component has absolutely no connections, it violates the flow rule.
             if self.in_degree[comp] == 0 and self.out_degree[comp] == 0:
-                continue # Handled by isolated check
-                
-            if comp not in reachable_from_inlets:
-                # If it's acting as a source but we already determined it's not a valid system inlet
-                # Or if it's completely detached from the main flow
-                flow_errors.add(comp)
-                
-        # 2. Trace backwards from outlets: Nodes that never reach an outlet are dead-ends
-        reachable_to_outlets = set()
-        reverse_adj_list = defaultdict(list)
-        for u in self.adj_list:
-            for v in self.adj_list[u]:
-                reverse_adj_list[v].append(u)
-                
-        rev_queue = deque(outlets)
-        while rev_queue:
-            curr = rev_queue.popleft()
-            if curr not in reachable_to_outlets:
-                reachable_to_outlets.add(curr)
-                for neighbor in reverse_adj_list[curr]:
-                    rev_queue.append(neighbor)
-                    
-        for comp in self.components:
-            if self.in_degree[comp] == 0 and self.out_degree[comp] == 0:
-                continue
-            if comp not in reachable_to_outlets:
                 flow_errors.add(comp)
 
         return list(flow_errors), missing_inlet, missing_outlet

@@ -13,14 +13,25 @@ class ComponentWidget(QWidget):
         self.config = config or {}
         self.renderer = QSvgRenderer(svg_path)
 
-        # Standard component size (closer to web default of 100x100)
-        self.setFixedSize(100, 60)
+        # Dynamic size based on SVG dimensions
+        default_size = self.renderer.defaultSize()
+        w = default_size.width()
+        h = default_size.height()
+
+        if w > 0 and h > 0:
+            scale = 100.0 / max(w, h)
+            new_w = max(20, int(w * scale))
+            new_h = max(20, int(h * scale))
+        else:
+            new_w, new_h = 100, 60
+
+        self.setFixedSize(new_w, new_h)
+
 
         self.hover_port = None
         self.is_selected = False
         self.drag_start_global = None
         
-        self.rotation_angle = 0
         self.rotation_angle = 0
         self.drag_start_positions = {}
         
@@ -30,7 +41,7 @@ class ComponentWidget(QWidget):
         
         # Logical Coordinates (True 100% scale geometry)
         # Initialize from current geometry or valid defaults
-        self.logical_rect = QRectF(self.x(), self.y(), 100, 60)
+        self.logical_rect = QRectF(self.x(), self.y(), new_w, new_h)
 
         # Cache for grips to prevent file reading lag during paint events
         self._cached_grips = None
@@ -67,12 +78,30 @@ class ComponentWidget(QWidget):
     def calculate_svg_rect(self, content_rect):
         """
         Calculate the actual rectangle where SVG will be rendered.
-        Updated to FILL the content_rect (ignoring aspect ratio) to ensure
-        grips at 0% and 100% align with the widget edges.
+        Preserves source SVG aspect ratio to avoid component stretching.
         """
-        # We strictly fill the content_rect so that 0-100% mapping 
-        # aligns with the selection box edges.
-        return QRectF(content_rect)
+        default_size = self.renderer.defaultSize()
+        if not default_size or default_size.width() <= 0 or default_size.height() <= 0:
+            return QRectF(content_rect)
+
+        src_w = float(default_size.width())
+        src_h = float(default_size.height())
+        src_ratio = src_w / src_h
+
+        target_w = content_rect.width()
+        target_h = content_rect.height()
+        target_ratio = target_w / target_h if target_h > 0 else src_ratio
+
+        if target_ratio > src_ratio:
+            render_h = target_h
+            render_w = render_h * src_ratio
+        else:
+            render_w = target_w
+            render_h = render_w / src_ratio
+
+        x = content_rect.x() + (target_w - render_w) / 2.0
+        y = content_rect.y() + (target_h - render_h) / 2.0
+        return QRectF(x, y, render_w, render_h)
     
     def map_svg_to_widget_coords(self, svg_x_percent, svg_y_percent, svg_rect):
         """
@@ -92,8 +121,54 @@ class ComponentWidget(QWidget):
     
     # _should_invert_y_axis REMOVED — web always inverts Y, so we do too
     
-
-
+    def get_svg_dimensions(self):
+        """
+        Get the natural dimensions from the SVG viewBox.
+        Returns (width, height) as a tuple.
+        """
+        if self.renderer.isValid():
+            default_size = self.renderer.defaultSize()
+            return (default_size.width(), default_size.height())
+        return (100, 100)  # Fallback
+    
+    def calculate_logical_size(self, svg_size):
+        """
+        Calculate logical component size that maintains aspect ratio.
+        Uses a standard scale factor so components are reasonably sized.
+        
+        Scale to approximately 100px on the longer dimension to match web defaults.
+        """
+        width, height = svg_size
+        
+        if width == 0 or height == 0:
+            return (100, 60)  # Fallback
+        
+        # Target size for the longer dimension
+        target_size = 100.0
+        
+        # Calculate aspect ratio
+        aspect_ratio = float(width) / float(height)
+        
+        if width >= height:
+            # Width is longer
+            logical_width = target_size
+            logical_height = target_size / aspect_ratio
+        else:
+            # Height is longer
+            logical_height = target_size
+            logical_width = target_size * aspect_ratio
+        
+        # Ensure minimum size for usability, but maintain aspect ratio
+        min_dimension = 20.0  # Absolute minimum for visibility
+        
+        if logical_width < min_dimension or logical_height < min_dimension:
+            # Scale up proportionally to meet minimum
+            scale_factor = max(min_dimension / logical_width, min_dimension / logical_height)
+            logical_width *= scale_factor
+            logical_height *= scale_factor
+        
+        # Round to nearest integer while preserving aspect ratio as much as possible
+        return (round(logical_width), round(logical_height))
 
     def load_grips_from_json(self):
         """
@@ -208,13 +283,24 @@ class ComponentWidget(QWidget):
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(svg_rect.adjusted(1, 1, -1, -1), 6, 6)
             
-        # Validation Warning Indicator (Halo)
+        # Validation Error Icon (Badge)
         if not self.is_valid:
             error_color = QColor("#f87171") if app_state.current_theme == "dark" else QColor("#ef4444")
-            painter.setPen(QPen(error_color, 2.5, Qt.DashLine))
-            painter.setBrush(Qt.NoBrush)
-            # Draw slightly inside selection box to avoid overlap when both are active
-            painter.drawRoundedRect(svg_rect.adjusted(3, 3, -3, -3), 6, 6)
+            painter.setBrush(error_color)
+            painter.setPen(Qt.NoPen)
+            
+            # Position at top-right corner of the SVG rect
+            radius = 5.5
+            center_x = svg_rect.right() - radius
+            center_y = svg_rect.top() + radius
+            
+            painter.drawEllipse(QPointF(center_x, center_y), radius, radius)
+            
+            # Draw an exclamation mark inside the circle
+            painter.setPen(QPen(Qt.white, 1.5, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(QPointF(center_x, center_y - 2), QPointF(center_x, center_y + 1))
+            painter.drawPoint(QPointF(center_x, center_y + 3))
+
 
         # Label (drawn below SVG, within the extra LABEL_H space added by update_visuals)
         if self.config.get('default_label'):
@@ -275,24 +361,29 @@ class ComponentWidget(QWidget):
     def get_logical_grip_position(self, idx):
         """
         Get grip position in LOGICAL coordinates (unscaled).
-        
-        Matches web formula exactly:
-          cx = (grip.x / 100) * width
-          cy = ((100 - grip.y) / 100) * height
-        
-        No margins, no offsets — direct percentage of logical size.
+
+        Must match the same SVG render rect logic used by paintEvent,
+        otherwise connection endpoints and visible cyan grips diverge.
         """
         grips = self.get_grips()
 
         if 0 <= idx < len(grips):
             grip = grips[idx]
-            l_w = self.logical_rect.width()
-            l_h = self.logical_rect.height()
-            
-            cx = (grip["x"] / 100.0) * l_w
-            cy = ((100.0 - grip["y"]) / 100.0) * l_h
-            
-            return QPointF(cx, cy)
+
+            # Recreate the same geometry used for visual rendering, but in logical space.
+            logical_pad = float(self.PORT_PAD)
+            logical_content = QRectF(
+                logical_pad,
+                logical_pad,
+                max(1.0, self.logical_rect.width()),
+                max(1.0, self.logical_rect.height()),
+            )
+
+            logical_svg_rect = self.calculate_svg_rect(logical_content)
+            mapped = self.map_svg_to_widget_coords(grip["x"], grip["y"], logical_svg_rect)
+
+            # Convert from widget-relative (includes pad) to logical-rect-relative.
+            return QPointF(mapped.x() - logical_pad, mapped.y() - logical_pad)
 
         return QPointF(0, 0)
 
