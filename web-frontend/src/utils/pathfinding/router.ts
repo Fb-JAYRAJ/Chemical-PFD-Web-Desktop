@@ -2,7 +2,7 @@
 import { Point } from "./types";
 import { aStarSpatial } from "./aStar";
 import { applyStandoff } from "./obstacles";
-import { optimizePath } from "./optimize";
+import { optimizePath, enforceManhattanShape } from "./optimize";
 import { generateSpatialGraph } from "./spatialGraph";
 
 import { CanvasItem } from "@/components/Canvas/types";
@@ -51,7 +51,9 @@ export function findOrthogonalPath(
 
   // Optimize and convert path to canvas coordinates
   // optimizePath removes unnecessary collinear intermediate points
-  return optimizePath(result.path);
+  // enforceManhattanShape collapses to clean L/straight shape
+  const optimized = optimizePath(result.path);
+  return enforceManhattanShape(optimized);
 }
 
 /**

@@ -77,3 +77,30 @@ export function optimizePath(path: Point[]): Point[] {
   // Ensure orthogonal segments for safety
   return createOrthogonalSegments(compressed);
 }
+
+/**
+ * Enforce a strict Manhattan shape (L or Z) on a path.
+ * Collapses any noisily-routed path back to at most 3 waypoints:
+ *   start → corner → end  (L-shape, horizontal-first)
+ *
+ * If start and end share an X or Y coordinate already (straight line),
+ * the path is returned as-is with just those two points.
+ */
+export function enforceManhattanShape(path: Point[]): Point[] {
+  if (path.length <= 2) return path;
+
+  const start = path[0];
+  const end = path[path.length - 1];
+
+  // Already a straight line — no corner needed
+  if (start.x === end.x || start.y === end.y) {
+    return [start, end];
+  }
+
+  // Canonical L-shape: horizontal move first, then vertical
+  return [
+    start,
+    { x: end.x, y: start.y },
+    end,
+  ];
+}
