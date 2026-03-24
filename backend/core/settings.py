@@ -7,6 +7,8 @@ import os
 import environ
 import dj_database_url
 from datetime import timedelta
+import sys
+
 
 
 # ===============================
@@ -248,7 +250,12 @@ if not DEBUG:
 # ===============================
 # AXES CONFIGURATION
 # ===============================
+
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 1  # in hours
 AXES_LOCK_OUT_AT_FAILURE = True
 AXES_RESET_ON_SUCCESS = True
+
+# Disable axes during tests to prevent rate limiting
+if 'test' in sys.argv:
+    AXES_ENABLED = False
