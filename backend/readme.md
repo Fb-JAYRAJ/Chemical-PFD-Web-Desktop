@@ -18,6 +18,7 @@ Backend API for a **Chemical Process Flow Diagram (PFD)** system built with **Dj
   - [Environment Configuration](#environment-configuration)
   - [Setup](#setup)
   - [Running the Project](#running-the-project)
+  - [Running Tests](#running-tests)
   - [Authentication](#authentication)
   - [API Documentation](#api-documentation)
     - [1. Hello World](#1-hello-world)
@@ -52,6 +53,8 @@ Backend API for a **Chemical Process Flow Diagram (PFD)** system built with **Dj
 Make sure you have the following installed before getting started:
 
 - [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/install/) — required for the recommended setup
+  > 📥 **Download Docker Desktop here: [https://www.docker.com/products/docker-desktop/](https://www.docker.com/products/docker-desktop/)**  
+  > Docker Desktop includes both Docker and Docker Compose. Install this **before** proceeding with the PostgreSQL setup.
 - [Python 3.11+](https://www.python.org/downloads/) — only required if running without Docker
 - [Git](https://git-scm.com/)
 
@@ -129,6 +132,8 @@ Follow the [Environment Configuration](#environment-configuration) steps above.
 
 ### 3. Start the PostgreSQL container
 
+> ⚠️ **Make sure Docker Desktop is running** before executing this command.
+
 ```bash
 docker-compose up -d
 ```
@@ -199,6 +204,45 @@ Access the API at:
 
 ```
 http://127.0.0.1:8000/api/
+```
+
+---
+
+## Running Tests
+
+Make sure your virtual environment is activated and the PostgreSQL container is running before executing the tests.
+
+### 1. Activate the virtual environment
+
+**Windows**
+
+```bash
+env\Scripts\activate
+```
+
+**Linux / macOS**
+
+```bash
+source env/bin/activate
+```
+
+### 2. Run the test suite
+
+```bash
+python manage.py test tests.tests --verbosity=2
+```
+
+The `--verbosity=2` flag prints the pass/fail status of each individual test as it runs:
+
+```
+test_create_component (tests.tests.ComponentListViewTests) ... ok
+test_create_requires_auth (tests.tests.ComponentListViewTests) ... ok
+test_login_returns_tokens (tests.tests.LoginViewTests) ... ok
+test_register_success (tests.tests.RegisterViewTests) ... ok
+...
+----------------------------------------------------------------------
+Ran 42 tests in 9.957s
+OK
 ```
 
 ---
