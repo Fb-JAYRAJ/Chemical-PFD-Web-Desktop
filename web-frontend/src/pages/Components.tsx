@@ -77,7 +77,9 @@ export default function Components() {
         else {
           setSvgFile(reader.result as string);
           if (e.target.files) {
-            setTempGrips([...grips]);
+            // Flush any existing grips when a completely new SVG is loaded 
+            setGrips([]);
+            setTempGrips([]);
             setIsGripEditorOpen(true);
           }
         }
@@ -242,6 +244,7 @@ export default function Components() {
   };
 
   const categories = Object.keys(components);
+  const isFormValid = name.trim() !== "" && (category || newCategory) && iconFile && svgFile;
 
   return (
     <>
@@ -410,55 +413,71 @@ export default function Components() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Left Column: Form Fields */}
                   <div className="space-y-4">
-                    <Input
-                      isRequired
-                      label="Component Name"
-                      placeholder="e.g. My Custom Heat Exchanger"
-                      value={name}
-                      onValueChange={setName}
-                    />
+                    <Tooltip content="Primary display name, visible in the library and toolbars." placement="top-start" delay={600}>
+                      <div className="block w-full">
+                        <Input
+                          isRequired
+                          label="Component Name"
+                          placeholder="e.g. My Custom Heat Exchanger"
+                          value={name}
+                          onValueChange={setName}
+                        />
+                      </div>
+                    </Tooltip>
 
-                    <Select
-                      label="Category"
-                      placeholder="Select category"
-                      selectedKeys={category ? [category] : []}
-                      onChange={(e) => {
-                        setCategory(e.target.value);
-                        setNewCategory("");
-                      }}
-                    >
-                      {categories.map((cat) => (
-                        <SelectItem key={cat}>{cat}</SelectItem>
-                      ))}
-                    </Select>
+                    <Tooltip content="Groups identical components under a single tab." placement="top-start" delay={600}>
+                      <div className="block w-full">
+                        <Select
+                          label="Category"
+                          placeholder="Select category"
+                          selectedKeys={category ? [category] : []}
+                          onChange={(e) => {
+                            setCategory(e.target.value);
+                            setNewCategory("");
+                          }}
+                        >
+                          {categories.map((cat) => (
+                            <SelectItem key={cat}>{cat}</SelectItem>
+                          ))}
+                        </Select>
+                      </div>
+                    </Tooltip>
 
-                    <Input
-                      label="New Category (Optional)"
-                      placeholder="Or create new..."
-                      value={newCategory}
-                      onValueChange={(val) => {
-                        setNewCategory(val);
-                        if (val) setCategory("");
-                      }}
-                    />
+                    <Tooltip content="Create a brand new category tab." placement="top-start" delay={600}>
+                      <div className="block w-full">
+                        <Input
+                          label="New Category (Optional)"
+                          placeholder="Or create new..."
+                          value={newCategory}
+                          onValueChange={(val) => {
+                            setNewCategory(val);
+                            if (val) setCategory("");
+                          }}
+                        />
+                      </div>
+                    </Tooltip>
 
                     <div className="flex gap-4">
-                      <div className="flex-1">
-                        <Input
-                          label="Legend"
-                          placeholder="e.g. HEX"
-                          value={legend}
-                          onValueChange={setLegend}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <Input
-                          label="Suffix"
-                          placeholder="e.g. A/B"
-                          value={suffix}
-                          onValueChange={setSuffix}
-                        />
-                      </div>
+                      <Tooltip content="Base prefix for auto-generated labels (e.g. HEX)." placement="top-start" delay={600}>
+                        <div className="flex-1">
+                          <Input
+                            label="Legend"
+                            placeholder="e.g. HEX"
+                            value={legend}
+                            onValueChange={setLegend}
+                          />
+                        </div>
+                      </Tooltip>
+                      <Tooltip content="Optional trailing specifier (e.g. A/B)." placement="top-start" delay={600}>
+                        <div className="flex-1">
+                          <Input
+                            label="Suffix"
+                            placeholder="e.g. A/B"
+                            value={suffix}
+                            onValueChange={setSuffix}
+                          />
+                        </div>
+                      </Tooltip>
                     </div>
 
                     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
@@ -466,22 +485,57 @@ export default function Components() {
                         Component Images
                       </label>
                       <div className="flex flex-col gap-3">
-                        <Input
-                          accept="image/png"
-                          label="Toolbar Icon (PNG)"
-                          labelPlacement="outside"
-                          type="file"
-                          onChange={(e) => handleFileChange(e, "icon")}
-                        />
-                        <Input
-                          accept="image/svg+xml,image/png,image/jpeg"
-                          label="Canvas SVG"
-                          labelPlacement="outside"
-                          type="file"
-                          onChange={(e) => handleFileChange(e, "svg")}
-                        />
+                        <Tooltip content="Required: Image used for library thumbnail." placement="top-start" delay={600}>
+                          <div className="block w-full">
+                            <Input
+                              accept="image/png"
+                              label="Toolbar Icon (PNG)"
+                              labelPlacement="outside"
+                              type="file"
+                              onChange={(e) => handleFileChange(e, "icon")}
+                            />
+                          </div>
+                        </Tooltip>
+                        <Tooltip content="Required: Vector graphic rendered on canvas." placement="top-start" delay={600}>
+                          <div className="block w-full">
+                            <Input
+                              accept="image/svg+xml,image/png,image/jpeg"
+                              label="Canvas SVG"
+                              labelPlacement="outside"
+                              type="file"
+                              onChange={(e) => handleFileChange(e, "svg")}
+                            />
+                          </div>
+                        </Tooltip>
                       </div>
                     </div>
+                    
+                    {/* Final Component Preview */}
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800 shadow-sm mt-4">
+                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                         Component Final Preview
+                       </h3>
+                       <div className="flex items-center gap-4">
+                          <div className="w-16 h-16 border rounded-lg bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 flex items-center justify-center p-2 text-gray-400">
+                            {iconFile ? <img src={iconFile} alt="Toolbar Icon" className="max-w-full max-h-full object-contain" /> : <span className="text-xs">PNG</span>}
+                          </div>
+                          <div className="flex flex-col justify-center">
+                             <p className="text-xs text-gray-400 mb-1">Generated Label Frame</p>
+                             <div className="px-3 py-1 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded font-mono text-sm font-bold text-primary flex items-center gap-1">
+                               <span>{legend || "???"}</span>
+                               <span className="text-gray-400">-</span>
+                               <span>01</span>
+                               {suffix && (
+                                 <>
+                                   <span className="text-gray-400">-</span>
+                                   <span>{suffix}</span>
+                                 </>
+                               )}
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+
                   </div>
 
                   {/* Right Column: Grip Editor Summary */}
@@ -539,7 +593,7 @@ export default function Components() {
                   </div>
                 </div>
               </ModalBody>
-              <ModalFooter className="flex justify-between">
+              <ModalFooter className="flex justify-between items-center">
                 <div>
                   {editingComponent && (
                     <Button
@@ -551,13 +605,20 @@ export default function Components() {
                     </Button>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <Button color="danger" variant="light" onPress={onClose}>
-                    Cancel
-                  </Button>
-                  <Button color="primary" onPress={() => handleSubmit(onClose)}>
-                    {editingComponent ? "Save Changes" : "Create Component"}
-                  </Button>
+                <div className="flex flex-col items-end gap-2">
+                  {!isFormValid && (
+                    <span className="text-xs text-danger pr-1">
+                      *Please fill required fields and upload both PNG and SVG.
+                    </span>
+                  )}
+                  <div className="flex gap-2">
+                    <Button color="danger" variant="light" onPress={onClose}>
+                      Cancel
+                    </Button>
+                    <Button color="primary" onPress={() => handleSubmit(onClose)} isDisabled={!isFormValid}>
+                      {editingComponent ? "Save Changes" : "Create Component"}
+                    </Button>
+                  </div>
                 </div>
               </ModalFooter>
             </>
