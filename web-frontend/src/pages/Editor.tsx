@@ -112,6 +112,9 @@ const resolveImageUrl = (url: string) => {
 };
 
 export default function Editor() {
+  const { addItem, addConnection } = useEditorStore();
+  const [userInput, setUserInput] = useState("");
+  const [generatedDiagram, setGeneratedDiagram] = useState(null);
   const [aiError, setAiError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
@@ -1608,6 +1611,96 @@ export default function Editor() {
       previewAngle = meta.arrowAngle;
     }
   }
+  const handleGenerate = async () => {
+    if (isGenerating) return;
+
+    setIsGenerating(true);
+    setAiError("");
+
+    try {
+      const res = await fetch("http://localhost:8000/api/ai-generate/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt: userInput }),
+      });
+
+      const data = await res.json();
+
+      console.log("AI RESPONSE:", data);
+
+      if (data.error) {
+        setAiError("Something went wrong");
+        return;
+      }
+
+      // ✅ FIX 1: flatten properly
+      const componentList = Object.values(components)
+        .flatMap((group) => Object.values(group))
+        .filter((c) => c && c.name);
+
+      // ✅ FIX 2: DEFINE HERE (IMPORTANT)
+      const typeMap = {
+        compressor: ["compressor"],
+        dryer: ["dryer"],
+        feeder: ["feeder", "general", "symbol"],
+      };
+
+      const idMap = {};
+
+      // 🔥 ADD ITEMS
+      (data.components || []).forEach((comp, index) => {
+        const matchedComponent = componentList.find((c) => {
+          const keywords = typeMap[comp.type] || [comp.type];
+
+          return keywords.some((keyword) =>
+            c.name?.toLowerCase().includes(keyword),
+          );
+        });
+
+        if (!matchedComponent) {
+          console.warn("❌ No match:", comp.type);
+          return;
+        }
+
+        const newId = `item-${index}`;
+        idMap[comp.id] = newId;
+
+        addItem({
+          id: newId,
+          component_id: matchedComponent.id,
+          x: comp.x || 100 + index * 150,
+          y: comp.y || 100,
+          label: comp.type,
+          sequence: index,
+        });
+      });
+
+      // 🔗 CONNECTIONS
+      (data.connections || []).forEach((conn) => {
+        const source = idMap[conn.from];
+        const target = idMap[conn.to];
+
+        if (!source || !target) return;
+
+        addConnection({
+          sourceItemId: source,
+          targetItemId: target,
+          sourceGripIndex: 0,
+          targetGripIndex: 0,
+          waypoints: [],
+        });
+      });
+
+      setShowAIModal(false);
+    } catch (err) {
+      console.error("API ERROR:", err);
+      setAiError("Failed to connect to server");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
@@ -2441,6 +2534,8 @@ export default function Editor() {
             <textarea
               className="w-full border p-2 mb-3 rounded dark:bg-gray-800"
               placeholder="e.g. Pump → Heat Exchanger → Tank"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
             />
 
             {aiError && (
@@ -2465,23 +2560,7 @@ export default function Editor() {
               <button
                 className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
                 disabled={isGenerating}
-                onClick={() => {
-                  setAiError(""); // clear previous error
-                  setIsGenerating(true);
-
-                  setTimeout(() => {
-                    const isSuccess = Math.random() > 0.5;
-
-                    if (!isSuccess) {
-                      setAiError("Something went wrong. Please try again.");
-                      setIsGenerating(false);
-                      return;
-                    }
-
-                    setIsGenerating(false);
-                    setShowAIModal(false);
-                  }, 2000);
-                }}>
+                onClick={handleGenerate}>
                 {isGenerating ? "Generating..." : "Generate Diagram"}
               </button>
             </div>

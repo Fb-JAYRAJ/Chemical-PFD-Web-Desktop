@@ -15,7 +15,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework.permissions import AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import transaction
-
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from core.gemini_service import generate_diagram
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -322,3 +324,12 @@ class ProjectDetailView(generics.RetrieveUpdateDestroyAPIView):
             "status": "success",
             "message": "Project deleted successfully"
         }, status=status.HTTP_200_OK)
+
+@api_view(["POST"])
+@permission_classes([AllowAny]) #no login required for now, can change later if needed
+def ai_generate(request):
+    prompt = request.data.get("prompt")
+
+    result = generate_diagram(prompt)
+
+    return Response(result)

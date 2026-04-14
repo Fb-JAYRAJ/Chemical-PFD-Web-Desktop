@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-
+from .views import ai_generate
 
 urlpatterns = [
     path("hello/", views.hello_world),
@@ -18,5 +18,7 @@ urlpatterns = [
     # Project endpoints
     path('project/', views.ProjectListCreateView.as_view(), name='project-list'),
     path('project/<int:id>/', views.ProjectDetailView.as_view(), name='project-detail'),
-  ]
 
+    # AI endpoint
+    path("ai-generate/", ai_generate),
+  ]
